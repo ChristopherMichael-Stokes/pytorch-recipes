@@ -89,10 +89,12 @@ def train_mnist(config, epochs, checkpoint_dir=None, data_dir=None):
     # choose computation host device
     device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
     device = torch.device(device_name)
-    model.to(device)
+    model = model.to(device)
     
     
-    optimiser = torch.optim.SGD(params=model.parameters(), lr=config['lr'], momentum=0.9)
+    
+    # optimiser = torch.optim.SGD(params=model.parameters(), lr=config['lr'], momentum=config['momentum'])
+    optimiser = torch.optim.Adam(params=model.parameters(), lr=config['lr'])
     f_loss = nn.CrossEntropyLoss()
     
     # training loop
@@ -115,10 +117,11 @@ def train_mnist(config, epochs, checkpoint_dir=None, data_dir=None):
         # we are adding the metrics tensor for each batch to a list,
         # then concatenating at the end to make one tensor with all samples
         for idx, (X, y) in enumerate(dataloader_val):
+            X, y = X.to(device), y.to(device)
             with torch.no_grad():
                 y_pred = model(X)
-                predictions.append(y_pred.detach())
-                targets.append(y)
+                predictions.append(y_pred.detach().cpu())
+                targets.append(y.cpu())
                 val_losses.append(f_loss(y_pred, y).cpu().item())
 
         predictions = torch.cat(predictions, dim=0)
@@ -180,14 +183,15 @@ class TrialTerminationReporter(CLIReporter):
     
 
 def main(max_epochs=20, num_trials=30, is_notebook=True):
-    config = {'lr':tune.loguniform(1e-3, 1e-1), 
+    config = {'lr':tune.loguniform(1e-5, 1e-3), 
+    #          'momentum':tune.uniform(0.1, 0.9),
               'batch_size':tune.choice([256]), 
               'p_d1':tune.uniform(0.2, 0.9), 
               'p_d2':tune.uniform(0.2, 0.9), 
               'h1':tune.choice([512, 1024]), 
               'h2':tune.choice([256, 512]),
-              'h3':tune.choice([16, 32, 64, 128, 256]), 
-              'h4':tune.choice([16, 32, 64, 128])}
+              'h3':tune.choice([16, 32, 64]), 
+              'h4':tune.choice([16, 32, 64])}
 
 
     scheduler = ASHAScheduler(metric='loss', 
@@ -203,9 +207,9 @@ def main(max_epochs=20, num_trials=30, is_notebook=True):
         reporter = TrialTerminationReporter(metric_columns=metric_columns)
     #reporter  = CLIReporter(metric_columns=['loss', 'accuracy', 'training_iteration'])
 
-    resources = {'cpu':2} 
+    resources = {'cpu':3} 
     if torch.cuda.is_available():
-        resources['gpu'] = 0.5
+        resources['gpu'] = 0.25 
 
     result = tune.run(partial(train_mnist, epochs=max_epochs),
                       resources_per_trial=resources, 
