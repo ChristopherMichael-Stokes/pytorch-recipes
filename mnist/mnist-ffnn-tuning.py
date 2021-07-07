@@ -159,7 +159,7 @@ def main(max_epochs=20, num_trials=30, is_notebook=True):
 
     scheduler = ASHAScheduler(metric='loss', 
                             mode='min',
-                            max_t=20, 
+                            max_t=max_epochs, 
                             grace_period=2, 
                             reduction_factor=2)
     
