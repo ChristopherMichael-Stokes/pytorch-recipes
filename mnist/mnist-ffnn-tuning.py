@@ -22,20 +22,35 @@ from ray.tune.schedulers import ASHAScheduler
 
 #region definitions
 class FFNN(nn.Module):
-    def __init__(self, in_shape, out_shape, p_d1=0.5, p_d2=0.4, h1=64, h2=32):
+    def __init__(self, in_shape, out_shape, p_d1=0.5, p_d2=0.4, h1=64, h2=32, h3=32, h4=28):
         super().__init__()
-        fc1 = nn.Linear(in_shape, h1)
-        a1  = nn.ReLU()
-        d1  = nn.Dropout(p=p_d1)
-        fc2 = nn.Linear(h1, h2)
-        a2  = nn.ReLU()
-        d2  = nn.Dropout(p=p_d2)
-        fc3 = nn.Linear(h2, out_shape)
+        # fc1 = nn.Linear(in_shape, h1)
+        # a1  = nn.ReLU()
+        # d1  = nn.Dropout(p=p_d1)
+        # fc2 = nn.Linear(h1, h2)
+        # a2  = nn.ReLU()
+        # d2  = nn.Dropout(p=p_d2)
+        # fc3 = nn.Linear(h2, out_shape)
         
         # not applying log_softmax here, as it is applied later in 
         # the torch CCE loss
         
-        self.nn = nn.Sequential(fc1, a1, d1, fc2, a2, d2, fc3)
+        # self.nn = nn.Sequential(fc1, a1, d1, fc2, a2, d2, fc3)
+        self.nn = nn.Sequential(
+            nn.Linear(in_shape, h1), # input -> hidden1
+            nn.ReLU(),
+            nn.Dropout(p=p_d1),
+            nn.Linear(h1, h2), # hidden1 -> hidden2
+            nn.ReLU(),
+            nn.Dropout(p=p_d2),
+            nn.Linear(h2, h3), # hidden2 -> hidden3
+            nn.ReLU(),
+            nn.Dropout(p=p_d1),
+            nn.Linear(h3, h4), # hidden3 -> hidden4
+            nn.ReLU(),
+            nn.Dropout(p=p_d2),
+            nn.Linear(h4, out_shape) # hidden4 -> output
+        )
 
     def forward(self, x):
         x = self.nn(x)
@@ -148,13 +163,31 @@ def test_accuracy(model, device='cpu'):
         test_accuracy = corrects / len(targets)
         
     return  test_accuracy
+
+class TrialTerminationReporter(CLIReporter):
+    """
+    class taken from https://docs.ray.io/en/master/tune/api_docs/reporters.html
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.num_terminated = 0 
+       
+    def should_report(self, trials, done=False):
+        """Reports only on trial termination events."""
+        old_num_terminated = self.num_terminated
+        self.num_terminated = len([t for t in trials if t.status == tune.trial.Trial.TERMINATED])
+        return self.num_terminated > old_num_terminated
+    
+
 def main(max_epochs=20, num_trials=30, is_notebook=True):
     config = {'lr':tune.loguniform(1e-3, 1e-1), 
-              'batch_size':tune.choice([32, 64, 128, 256, 512]), 
+              'batch_size':tune.choice([256]), 
               'p_d1':tune.uniform(0.2, 0.9), 
               'p_d2':tune.uniform(0.2, 0.9), 
-              'h1':tune.choice([64, 256, 512, 1024]), 
-              'h2':tune.choice([32, 64, 256, 512])}
+              'h1':tune.choice([512, 1024]), 
+              'h2':tune.choice([256, 512]),
+              'h3':tune.choice([16, 32, 64, 128, 256]), 
+              'h4':tune.choice([16, 32, 64, 128])}
 
 
     scheduler = ASHAScheduler(metric='loss', 
@@ -167,7 +200,7 @@ def main(max_epochs=20, num_trials=30, is_notebook=True):
     if is_notebook:
         reporter = JupyterNotebookReporter(overwrite=True, max_progress_rows=num_trials, metric_columns=metric_columns)
     else:
-        reporter = CLIReporter(metric_columns=metric_columns)
+        reporter = TrialTerminationReporter(metric_columns=metric_columns)
     #reporter  = CLIReporter(metric_columns=['loss', 'accuracy', 'training_iteration'])
 
     resources = {'cpu':2} 
@@ -201,7 +234,6 @@ def main(max_epochs=20, num_trials=30, is_notebook=True):
     
     return best_trial
 #endregion
-
 
 
 if __name__=='__main__':
